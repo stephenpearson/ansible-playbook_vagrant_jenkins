@@ -1,0 +1,188 @@
+---
+- name: Install APT key
+  apt_key:
+    url: "https://pkg.jenkins.io/debian/jenkins-ci.org.key"
+    state: present
+  notify:
+  - Update APT cache
+
+- name: Add Jenkins APT repository
+  apt_repository:
+    repo: deb http://pkg.jenkins.io/debian-stable binary/
+    state: present
+  notify:
+  - Update APT cache
+
+- name: Install Jenkins and dependencies
+  apt: name={{ item }} state=latest
+       update_cache=yes cache_valid_time={{ apt_cache_time }}
+  with_items:
+    - jenkins
+    - python-pip
+    - libyaml-dev
+    - libpython-dev
+    - unzip
+    - apache2
+
+- apache2_module:
+    state: present
+    name: "{{ item }}"
+  with_items:
+  - proxy
+  - proxy_http
+  - headers
+
+- name: Install Jenkins Apache Proxy configuration
+  template:
+    src: "jenkins.conf.j2"
+    dest: "/etc/apache2/sites-available/jenkins.conf"
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+  - Restart Apache
+
+- name: Enable Jenkins Apache Proxy
+  file:
+    src: "/etc/apache2/sites-available/jenkins.conf"
+    dest: "/etc/apache2/sites-enabled/jenkins.conf"
+    owner: root
+    group: root
+    state: link
+
+- name: Disable default Apache config
+  file:
+    path: "/etc/apache2/sites-enabled/000-default.conf"
+    state: absent
+
+- name: Install Jenkins Job Builder
+  pip: name={{ item.name }} version={{ item.version }}
+  with_items:
+    - { name: six, version: 1.10.0 }
+    - { name: jenkins-job-builder, version: 2.0.0.0b1 }
+
+- name: Copy Jenkins plugin install script
+  copy:
+    src: install_jenkins_plugin.sh
+    dest: /usr/local/bin/install_jenkins_plugin.sh
+    owner: root
+    group: root
+    mode: 0755
+
+- name: Stopping Jenkins to allow plugin installation
+  service:
+    name: jenkins
+    state: stopped
+
+- meta: flush_handlers
+
+- name: Install throttle plugin config
+  copy:
+    src: hudson.plugins.throttleconcurrents.ThrottleJobProperty.xml
+    dest: /var/lib/jenkins/hudson.plugins.throttleconcurrents.ThrottleJobProperty.xml
+    owner: jenkins
+    group: jenkins
+    mode: 0644
+
+- name: Install Jenkins Plugins
+  shell: /usr/local/bin/install_jenkins_plugin.sh {{ item }}
+  with_items:
+    - git
+    - ansicolor
+    - role-strategy
+    - ldap
+    - greenballs
+    - throttle-concurrents
+
+- name: Starting Jenkins
+  service:
+    name: jenkins
+    state: started
+
+- name: Wait for Jenkins port to open
+  wait_for:
+    port: 8080
+
+- meta: flush_handlers
+
+- name: Allow Jenkins to start up
+  pause:
+    seconds: 15
+
+#- name: change secrets dir owner
+#  file:
+#    path: /var/lib/jenkins/secrets/
+#    state: directory
+#    owner: vagrant
+#    group: vagrant
+  #command: chown vagrant:vagrant /var/lib/jenkins/secrets
+#- name: change initialAdminPassword owner to vagrant
+#  file:
+#    path: /var/lib/jenkins/secrets/initialAdminPassword
+#    state: file
+#    owner: vagrant
+#    group: vagrant
+
+- name: Create Groovy startup directory
+  file:
+    path: /var/lib/jenkins/init.groovy.d
+    state: directory
+    mode: 0755
+    owner: jenkins
+    group: jenkins
+
+- name: Get initialAdminPassword
+#  shell: cat /var/lib/jenkins/secrets/initialAdminPassword
+  command: cat /var/lib/jenkins/secrets/initialAdminPassword
+  become_user: jenkins
+  register: initialAdminPassword
+
+- name: Write out Groovy scripts for intial config
+  template:
+    src: "{{ item }}.groovy.j2"
+    dest: "/var/lib/jenkins/init.groovy.d/{{ item }}.groovy"
+    owner: jenkins
+    group: jenkins
+    mode: 0644
+  with_items:
+    - security
+
+- name: Disable initial security wizard
+  shell: cp jenkins.install.UpgradeWizard.state jenkins.install.InstallUtil.lastExecVersion
+  args:
+    chdir: /var/lib/jenkins/
+    creates: jenkins.install.InstallUtil.lastExecVersion
+
+- name: Starting Jenkins
+  service:
+    name: jenkins
+    state: started
+
+- name: Wait for Jenkins port to open
+  wait_for:
+    port: 8080
+
+- meta: flush_handlers
+
+- name: Allow Jenkins to start up
+  pause:
+    seconds: 15
+
+- name: Write Jenkins JJB config file
+  template:
+    src: jenkins_jobs.ini.j2
+    dest: /var/lib/jenkins/jenkins_jobs.ini
+    owner: jenkins
+    group: jenkins
+    mode: 0640
+
+- name: Write JJB update job definition
+  template:
+    src: jenkins_job_builder_update.yml.j2
+    dest: /var/lib/jenkins/jenkins_job_builder_update.yml
+    owner: jenkins
+    group: jenkins
+    mode: 0644
+
+- name: Install JJB update job
+  shell: /usr/local/bin/jenkins-jobs --conf /var/lib/jenkins/jenkins_jobs.ini update /var/lib/jenkins/jenkins_job_builder_update.yml

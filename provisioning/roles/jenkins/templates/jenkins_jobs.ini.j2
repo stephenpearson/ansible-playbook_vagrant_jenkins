@@ -1,0 +1,11 @@
+[job_builder]
+ignore_cache=True
+include_path=.
+recursive=False
+allow_duplicates=False
+
+[jenkins]
+user=admin
+password= {{ initialAdminPassword.stdout }} 
+url=http://127.0.0.1:8080
+query_plugins_info=False

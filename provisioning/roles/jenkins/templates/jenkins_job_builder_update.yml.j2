@@ -1,0 +1,29 @@
+- job:
+    name: "jenkins_job_builder_update"
+    project-type: freestyle
+    disabled: false
+    concurrent: false
+    properties:
+    - build-discarder:
+        artifact-days-to-keep: -1
+        artifact-num-to-keep: -1
+        days-to-keep: -1
+        num-to-keep: 5
+    publishers: []
+    triggers: []
+    scm:
+    - git:
+        branches:
+        - '*/master'
+        url: ${JJB_GIT_URL}
+    wrappers:
+    - ansicolor:
+        colormap: xterm
+    builders:
+    - shell: |-
+        #!/bin/bash
+
+        for i in jobs/*.yml
+        do
+        /usr/local/bin/jenkins-jobs --conf /var/lib/jenkins/jenkins_jobs.ini update $i
+        done

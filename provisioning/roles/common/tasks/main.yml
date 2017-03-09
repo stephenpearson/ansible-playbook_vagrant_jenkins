@@ -1,0 +1,15 @@
+---
+- apt: name={{ item }} state=latest
+       update_cache=yes cache_valid_time={{ apt_cache_time }}
+  with_items:
+    - ntp
+    - ubuntu-cloud-keyring
+    - aptitude
+- service: name=ntp enabled=yes state=started
+- copy: src=ntp.conf dest=/etc/ntp.conf
+        owner=root group=root
+  notify: restart ntp
+- template: src=timezone dest=/etc/timezone
+            owner=root group=root mode=0644
+  notify: update timezone
+- apt: upgrade=full

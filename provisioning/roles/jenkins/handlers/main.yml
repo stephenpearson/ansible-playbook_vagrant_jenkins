@@ -1,0 +1,13 @@
+---
+- name: Update APT cache
+  apt: update_cache=yes
+
+- name: Restart Jenkins
+  service:
+    name: jenkins
+    state: restarted
+
+- name: Restart Apache
+  service:
+    name: apache2
+    state: restarted
